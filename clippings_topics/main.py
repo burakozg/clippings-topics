@@ -106,7 +106,7 @@ async def run() -> int:
     vault = LiveSyncVault(
         VaultConfig(
             couchdb_url=url,
-            db=os.environ.get("VAULT_DB", "tastings"),
+            db=os.environ.get("VAULT_DB", "the_brain"),
             user=os.environ.get("VAULT_USER", "admin"),
         ),
         os.environ.get("VAULT_COUCHDB_PASSWORD"),

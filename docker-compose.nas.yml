@@ -46,7 +46,7 @@ services:
     environment:
       TZ: Europe/Stockholm
       VAULT_COUCHDB_URL: "http://APP_VAULT_URL_PLACEHOLDER:5984"
-      VAULT_DB: tastings
+      VAULT_DB: the_brain
       VAULT_USER: admin
       CLIP_MODEL: google/gemini-2.5-flash-lite
       # Measured on this corpus, not inherited: see the calibration table in

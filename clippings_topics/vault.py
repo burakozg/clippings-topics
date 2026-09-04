@@ -49,7 +49,7 @@ class VaultUnavailable(Exception):
 @dataclass(frozen=True)
 class VaultConfig:
     couchdb_url: str = ""
-    db: str = "tastings"
+    db: str = "the_brain"
     user: str = "admin"
     timeout_s: float = 30.0
 
