@@ -99,13 +99,25 @@ only happen at creation, never on update — and they are chunked differently:
 | `99 topics/delta.md` | 1 | `h:t51e43f70…` — a server-side writer |
 | `99 topics/delta 2.md` | 2 | `h:25imzxac3eyaw` — the LiveSync client |
 
-No writer can prevent this: the copy is made client-side, after the write has
+No *writer* can prevent this: the copy is made client-side, after the write has
 already succeeded correctly. So `janitor.py` cleans up after it at the start of
 every run, and **the rule is byte-identity, not the name**. `10 raw/` legitimately
 holds `" 1"` and `" 2"` files — the Web Clipper disambiguating different articles
 that share a title, two of them linked — so a copy is reaped only when it is
 byte-for-byte its base. Anything that differs is reported and left for a human,
 because two files disagreeing is not a question this program can answer.
+
+Not inevitable, though: the plugin's own docs say plainly not to combine it
+with another sync tool on the same vault, and this vault had been doing
+exactly that — the race is a predictable consequence, not a mystery bug. An
+attempt to fix it by keeping LiveSync on just one device failed in practice
+(2026-08-30): the plugin lives *inside* the vault as files under
+`.obsidian/plugins/`, so it's vault content that iCloud syncs like anything
+else, not independent per-device state — uninstalling it on one device
+deleted it everywhere via iCloud. Corrected direction: drop iCloud for this
+vault entirely, LiveSync only, on every device (details and migration status
+in `homelab/README.md` and the `obsidian-vault-writer` skill). The reaper
+here stays on regardless, as defense-in-depth.
 
 Deletion goes through the vault, not the disk: the copy exists on every device,
 and only the document the clients replicate takes it off all of them. It is

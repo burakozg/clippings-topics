@@ -44,7 +44,14 @@ _DUP_SUFFIX = re.compile(r"^(?P<stem>.+) (?P<n>\d+)\.md$")
 #: where this failure can occur. Scoped rather than vault-wide as a second line
 #: of defence behind the byte-identity rule: ``10 raw/`` is the reader's and the
 #: Web Clipper's, and nothing here should be forming opinions about it.
-DEFAULT_PREFIXES = ("99 topics/", "12 daily-digest/")
+DEFAULT_PREFIXES = (
+    "99 topics/",
+    "12 daily-digest/",
+    # video-digest (plan §Part 4): whole-file notes and transcripts, both
+    # server-created, both subject to the same iCloud/LiveSync race.
+    "13 video-summaries/",
+    "14 video-transcripts/",
+)
 
 IDENTICAL = "identical"
 DIFFERS = "differs"
