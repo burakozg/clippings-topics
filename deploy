@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Deploy the clippings→topics job to the NAS. Run it on the Mac.
+#
+#   ./deploy            build, ship, bring it up
+#   ./deploy ship       build and ship only — nothing restarted
+#   ./deploy apply      bring it up from what is already on the NAS
+#   ./deploy render     write deploy-out/docker-compose.nas.yml and stop
+#   ./deploy check      is it running, and when did it last do anything
+#   ./deploy logs       follow the container's log
+#
+# See homelab/README.md for the verb contract the four sibling projects share,
+# and ~/.claude/skills/obsidian-vault-writer for the rules this job follows when
+# it writes into a vault other applications also write to.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+. ./deploy.lib.sh
+nas_load_env "$PWD" "/share/Container/clippings-topics"
+
+LIFECYCLE=compose
+TAG="clippings-topics:nas"
+NAS_COMPOSE="docker-compose.nas.yml"
+RENDERED="deploy-out/docker-compose.nas.yml"
+
+# This container's own qnet address. It listens on nothing, but it still needs
+# one: the vault is CouchDB on another macvlan address, and the NAS host cannot
+# route to its own macvlan children, so a bridge-only container cannot reach it.
+APP_LAN_IP="${APP_LAN_IP:-10.0.0.2}"
+# Where the vault lives — the same CouchDB Obsidian LiveSync replicates against.
+VAULT_LAN_IP="${VAULT_LAN_IP:-10.0.0.2}"
+
+do_render() {
+  nas_render "$NAS_COMPOSE" "$RENDERED" \
+    "s#APP_LAN_IP_PLACEHOLDER#${APP_LAN_IP}#" \
+    "s#APP_MAC_PLACEHOLDER#$(nas_mac_for_ip "${APP_LAN_IP}")#" \
+    "s#APP_VAULT_URL_PLACEHOLDER#${VAULT_LAN_IP}#"
+}
+
+do_ship() {
+  nas_require_reachable
+  nas_ship_image "$TAG" "$PWD"
+
+  echo "== shipping the compose definition =="
+  do_render
+  nas_put "$RENDERED" "${NAS_APP_DIR}/docker-compose.yml"
+
+  # The cache directory must exist and be writable by the container's uid before
+  # the first run, or the job loses its cache every time and re-extracts the
+  # whole corpus — expensive, though never wrong.
+  nas_ssh "mkdir -p '${NAS_APP_DIR}/data' && chmod 777 '${NAS_APP_DIR}/data'"
+
+  ship_secrets
+}
+
+# The two credentials the container needs, pushed from the local .env.
+#
+# Sent rather than set up by hand for the same reason family_calendar pushes its
+# .env: when a key is rotated, the place you rotate it should be the place the
+# deploy reads. Only the keys the container actually needs are sent — the local
+# .env also holds development settings that compose supplies itself.
+#
+# mode 600, and never into a tracked file: this is the one thing here that must
+# not end up in git or in a compose file.
+ship_secrets() {
+  [ -f .env ] || die ".env is missing — it holds VAULT_COUCHDB_PASSWORD and OPENROUTER_API_KEY."
+  local tmp
+  tmp="$(mktemp -t clip-env)"
+  # shellcheck disable=SC2064
+  trap "rm -f '${tmp}'" EXIT
+  grep -E '^(VAULT_COUCHDB_PASSWORD|OPENROUTER_API_KEY)=' .env > "$tmp" || true
+  local n
+  n="$(wc -l < "$tmp" | tr -d '[:space:]')"
+  [ "$n" = "2" ] || die "expected 2 secrets in .env, found ${n}"
+
+  echo "== shipping secrets =="
+  nas_put "$tmp" "${NAS_APP_DIR}/.env" 600
+  echo "  ✓ 2 keys, mode 600"
+  rm -f "$tmp"
+}
+
+do_apply() {
+  nas_require_reachable
+  nas_compose_up
+  echo
+  echo "It runs on start, then weekly. Follow it with:  ./deploy logs"
+}
+
+do_check() {
+  nas_require_reachable
+  nas_ssh "cd '${NAS_APP_DIR}' && ${NAS_DOCKER_ENV} '${NAS_DOCKER_BIN}' compose ps --format 'table {{.Name}}\t{{.Status}}'"
+  echo
+  # No health endpoint to probe — this thing listens on nothing by design. What
+  # a reader actually wants to know is when it last did something.
+  echo "══ last run ═════════════════════════════════════════════════"
+  nas_ssh "${NAS_DOCKER_ENV} '${NAS_DOCKER_BIN}' logs --tail 12 clippings-topics 2>&1" || true
+  echo
+  echo "══ cache ════════════════════════════════════════════════════"
+  nas_ssh "ls -la '${NAS_APP_DIR}/data/cache.json' 2>/dev/null || echo '  no cache yet — it has not completed a run'"
+}
+
+do_logs() {
+  nas_require_reachable
+  nas_ssh -t "${NAS_DOCKER_ENV} '${NAS_DOCKER_BIN}' logs -f --tail 40 clippings-topics"
+}
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: ./deploy [verb] [--no-apply]
+
+  (none)   ship, then bring it up — the everyday command
+  ship     build the image, ship it and the compose file; nothing restarted
+  apply    bring it up from what is already on the NAS
+  render   write deploy-out/docker-compose.nas.yml and stop
+  check    what is running, its recent log, and whether it has a cache
+  logs     follow the container's log
+
+  --no-apply   stop after ship
+
+Real values live in the git-ignored .deploy.env — see deploy.env.example.
+USAGE
+  exit 1
+}
+
+VERB=""
+while [ $# -gt 0 ]; do
+  if nas_global_flag "$1"; then :
+  elif [ -z "$VERB" ]; then VERB="$1"
+  else echo "Unexpected argument: $1" >&2; exit 2
+  fi
+  shift
+done
+
+case "${VERB:-up}" in
+  ship)   do_ship ;;
+  apply)  do_apply ;;
+  render) do_render ;;
+  check)  do_check ;;
+  logs)   do_logs ;;
+  up)     do_ship
+          if $NO_APPLY; then echo; echo "--no-apply: shipped, nothing restarted."; else do_apply; fi ;;
+  help|-h|--help) usage ;;
+  *) echo "✗ Unknown verb: ${VERB}" >&2; usage ;;
+esac

@@ -1,0 +1,15 @@
+# Local deploy config (real NAS host/IPs — see deploy.env.example)
+.deploy.env*
+deploy-out/
+
+# Secrets
+.env
+!.env.example
+
+# Runtime state (the extraction cache — see extract.Cache)
+data/
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/

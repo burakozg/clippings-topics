@@ -1,0 +1,67 @@
+# The NAS deployment — one scheduled job, no inbound surface.
+#
+# Shipped by `./deploy` and brought up with `docker compose up -d` over ssh.
+# Not a Container Station "Application": see homelab/README.md for why none of
+# these projects are any more.
+#
+# WHY IT HAS A LAN ADDRESS despite listening on nothing: the vault is CouchDB at
+# another address on this same qnet macvlan, and a bridge-only container cannot
+# reach it — the NAS host cannot route to its own macvlan children, so NAT'ing
+# out through the host does not work. Joining qnet is the only path that does.
+#
+# MAC PINNED, per network. Docker randomises the MAC on every `create` for
+# macvlan (unlike bridge networks, where it derives one from the IP), and the
+# router then keeps answering for the old one — the container comes back healthy
+# and unable to reach anything for minutes. `./deploy` fills both placeholders in
+# from .deploy.env, so the real address never lands in this tracked file.
+
+name: clippings-topics
+
+services:
+  clippings-topics:
+    image: clippings-topics:nas
+    container_name: clippings-topics
+    restart: unless-stopped
+
+    # Nothing is written outside /data. The container audit found read-only
+    # rootfs to be the only *provable* answer to unmounted state, rather than a
+    # judgement call about what a program writes where.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+    volumes:
+      # The extraction cache. State, so it is mounted — losing it costs a full
+      # re-extraction in money, never in correctness.
+      - /share/Container/clippings-topics/data:/data
+
+    env_file:
+      # VAULT_COUCHDB_PASSWORD and OPENROUTER_API_KEY. Never in this file:
+      # Container Station showed stored YAML in plaintext, and a compose file in
+      # a repo is worse.
+      - /share/Container/clippings-topics/.env
+
+    environment:
+      TZ: Europe/Stockholm
+      VAULT_COUCHDB_URL: "http://APP_VAULT_URL_PLACEHOLDER:5984"
+      VAULT_DB: tastings
+      VAULT_USER: admin
+      CLIP_MODEL: google/gemini-2.5-flash-lite
+      # Measured on this corpus, not inherited: see the calibration table in
+      # README.md. podcast-digest runs at 8 over thousands of episodes; 109
+      # clippings is two orders of magnitude smaller.
+      CLIP_MIN_MENTIONS: "3"
+      CLIP_RUN_AT: "sat 06:30"
+
+    networks:
+      qnet-static-eth1-dc7e3a:
+        ipv4_address: APP_LAN_IP_PLACEHOLDER
+        mac_address: APP_MAC_PLACEHOLDER
+
+networks:
+  # Created and owned by Container Station, not by compose — compose only joins
+  # it, and must not try to define its subnet or parent interface.
+  qnet-static-eth1-dc7e3a:
+    external: true
