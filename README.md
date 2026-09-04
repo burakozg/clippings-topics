@@ -84,12 +84,19 @@ the same rebuild handles for free.
 
 ## Duplicated notes, and why they are not ours
 
-The vault is replicated **twice over**: iCloud syncs the folder while LiveSync
-syncs the same notes through CouchDB. When a server-side writer *creates* a note,
-a LiveSync client goes to write the file, finds the path already occupied by the
-copy the other channel delivered, and Obsidian's create-if-exists appends `" 2"` —
-which the client then uploads as a fresh document. 54 notes had acquired one by
-2026-08-26, accumulating since 2026-07-27.
+**The cause of this was removed on 2026-09-01; the reaper stays anyway.** Until
+then the vault was replicated *twice over*: iCloud synced the folder while
+LiveSync synced the same notes through CouchDB. When a server-side writer
+*created* a note, a LiveSync client went to write the file, found the path
+already occupied by the copy the other channel had delivered, and Obsidian's
+create-if-exists appended `" 2"` — which the client then uploaded as a fresh
+document. 54 notes had acquired one by 2026-08-26, accumulating since
+2026-07-27.
+
+The vault is now LiveSync-only on every device, so nothing races and no new
+duplicates should appear. The reaper is kept as defence-in-depth: it is cheap,
+and the day a second sync channel is switched back on is precisely the day
+nobody remembers this section exists.
 
 The signature is unambiguous in CouchDB. Both documents sit at **rev 1** — it can
 only happen at creation, never on update — and they are chunked differently:
