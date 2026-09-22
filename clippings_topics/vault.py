@@ -26,6 +26,7 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
@@ -40,6 +41,18 @@ log = logging.getLogger(__name__)
 #: correct rather than a collision — both sides address chunks by content, so
 #: identical text legitimately resolves to one document.
 _CHUNK_PREFIX = "h:t"
+
+#: Where podcast-digest pins a topic's filename, once, forever — its own
+#: ``entities.TOPIC_NAMES_DOC_ID`` / ``resolve_note_names``. A topic's filename
+#: is part of the section-ownership contract, not a rendering detail: this app
+#: and that one only ever agree on what "Fortinet" is called by sharing the one
+#: document that says so, rather than each re-deriving a slug from its own,
+#: different corpus and getting `fortinet.md` beside `fortinet-inc.md`.
+TOPIC_NAMES_DOC_ID = "control:topic_names"
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class VaultUnavailable(Exception):
@@ -180,6 +193,40 @@ class LiveSyncVault:
         return "".join(parts)
 
     # ── writing ───────────────────────────────────────────────────────────────
+
+    async def resolve_topic_names(self, proposed: dict[str, str]) -> dict[str, str]:
+        """``canonical key -> pinned filename``, gap-filling only.
+
+        Shared with podcast-digest via :data:`TOPIC_NAMES_DOC_ID`: an existing
+        pin always wins, whichever app set it first, so two apps naming the
+        same entity from two different corpora still land on one file. Only
+        keys with no pin yet take the value proposed here.
+
+        Retries the whole read-modify-write on a conflict — the same shape
+        :meth:`_put_entry` uses for notes, just against a control document
+        instead of an entry.
+        """
+        if self._client is None:
+            raise VaultUnavailable("vault.couchdb_url is not set")
+
+        for _ in range(5):
+            doc = await self._get(TOPIC_NAMES_DOC_ID) or {
+                "_id": TOPIC_NAMES_DOC_ID,
+                "type": "control",
+                "key": "topic_names",
+            }
+            names = dict(doc.get("names") or {})
+            missing = {key: slug for key, slug in proposed.items() if key not in names}
+            if not missing:
+                return names
+            merged = {**names, **missing}
+            response = await self._put(
+                TOPIC_NAMES_DOC_ID, {**doc, "names": merged, "updated_at": _iso_now()}
+            )
+            if response.status_code != 409:
+                return merged
+
+        raise VaultUnavailable(f"{self.name}: repeated conflict pinning topic names")
 
     async def project(self, path: str, markdown: str, *, mtime_ms: int, merge: bool = True) -> bool:
         """Write one note. False when nothing needed writing.

@@ -118,3 +118,18 @@ def test_distribution_is_monotonic() -> None:
     table = top.distribution(topics)
     counts = [n for _, n in table]
     assert counts == sorted(counts, reverse=True)
+
+
+def test_known_alias_pairs_share_one_topic() -> None:
+    """An internal space is not noise `canonical` strips on its own, so these
+    would otherwise land as two topic notes — see homelab/vault-doctor.py,
+    which is what found them already split that way. Kept in lockstep with
+    the identical `_ALIASES` table in podcast_agent/entities.py and
+    security-digest's src/vault/text.py."""
+    c = clip.parse(entry(), CLIPPING)
+    topics = top.aggregate(
+        {c.doc_id: ["Hugging Face", "HuggingFace", "Shiny Hunters", "ShinyHunters"]},
+        {c.doc_id: c},
+    )
+    assert set(topics) == {"hugging face", "shinyhunters"}
+    assert topics["hugging face"].clippings == topics["shinyhunters"].clippings == [c]

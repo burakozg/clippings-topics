@@ -204,7 +204,17 @@ async def run() -> int:
                 log.error("no topic with slug %r", args.only)
                 return 2
 
-        created = sum(1 for t in selected.values() if t.slug not in existing_slugs)
+        # Filenames for what we are actually about to write are podcast-
+        # digest's to pin, not ours to recompute: an existing pin always
+        # wins, so a topic it already gave a page under one spelling merges
+        # into that page here too, instead of this app writing a second file
+        # under whatever its own, smaller corpus thinks the commonest
+        # spelling is.
+        filenames = await vault.resolve_topic_names(
+            {key: topic.slug for key, topic in selected.items()}
+        )
+
+        created = sum(1 for key in selected if filenames[key] not in existing_slugs)
         log.info(
             "writing topics=%d (new=%d, enriched=%d) dry_run=%s",
             len(selected),
@@ -214,9 +224,9 @@ async def run() -> int:
         )
 
         if args.dry_run:
-            for topic in sorted(selected.values(), key=lambda t: -len(t.clippings))[:15]:
-                new = " NEW" if topic.slug not in existing_slugs else ""
-                log.info("  %-34s %3d clippings%s", topic.slug, len(topic.clippings), new)
+            for key, topic in sorted(selected.items(), key=lambda kv: -len(kv[1].clippings))[:15]:
+                new = " NEW" if filenames[key] not in existing_slugs else ""
+                log.info("  %-34s %3d clippings%s", filenames[key], len(topic.clippings), new)
             return 0
 
         # 4. Merge. Read-then-write per note, against the vault.
@@ -224,7 +234,7 @@ async def run() -> int:
         written = 0
         for key in sorted(selected):
             topic = selected[key]
-            path = f"{TOPICS_FOLDER}/{topic.slug}.md"
+            path = f"{TOPICS_FOLDER}/{filenames[key]}.md"
             if await vault.project(path, top.render(topic), mtime_ms=now_ms, merge=True):
                 written += 1
 
@@ -232,7 +242,7 @@ async def run() -> int:
         # our region is emptied and the clip_* keys drop away.
         emptied = 0
         if not args.only:
-            written_slugs = {t.slug for t in selected.values()}
+            written_slugs = {filenames[key] for key in selected}
             for slug, (entry, current) in sorted(current_notes.items()):
                 if slug in written_slugs:
                     continue
